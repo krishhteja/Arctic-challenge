@@ -1,0 +1,279 @@
+<html>
+<body>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script><script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <script src="http://pagination.js.org/dist/2.1.4/pagination.min.js"></script>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    
+    <nav class="navbar navbar-inverse">
+          <div class="container-fluid">
+            <div class="navbar-header">
+              <a class="navbar-brand" href="#"> <span class = "glyphicon glyphicon-cloud">&nbsp;</span>Arctic Shakers</a>
+            </div>
+            <ul class="nav navbar-nav navbar-right">
+              <li><a href="/"><span class="glyphicon glyphicon-glass"></span> Map</a></li>
+              <li><a href="/visual"><span class="glyphicon glyphicon-glass"></span> Graph</a></li>
+            </ul>
+          </div>
+        </nav>
+    <div class = "container-fluid">
+	    <div class = "col-md-6">
+        <select id = "entity" class = "form-control">
+		<option value = "all">all</option> 
+        </select>
+	    </div>
+	    <div class = "col-md-6">
+	<input type = "date" id = "datepicker" class = "form-control">
+	    </div>
+    </div>
+    <div class = "container-fluid" style = "margin-top:10px">
+	    <div class = "col-md-4">&nbsp;</div>
+	    <div class = "col-md-4" style = "text-align:center">
+        <input type = "button" value = "Get Data" style = "align:center" class = "btn btn-primary" onclick = "getDataForVisual()">
+	    </div>
+	    <div class = "col-md-4">&nbsp;</div>
+	    </div>
+    <div id = 'metricGraph'></div>
+    <script>
+
+        //Things to do once the DOM elements are loaded
+        window.onload = function(){
+            getEntity();
+		    var date = (getDate());
+		    $("#datepicker").val(date);
+            getDataForVisual();
+        }
+
+        //Just bored so wrote a code to get date
+        function getDate(){
+            var today = new Date();
+            var dd = today.getDate();
+            var mm = today.getMonth()+1; //January is 0!
+            var yyyy = today.getFullYear();
+
+            if(dd<10) {
+                dd = '0'+dd
+            }
+
+            if(mm<10) {
+                mm = '0'+mm
+            }
+
+            today = yyyy + '-' + mm + '-' +dd;
+            return today;
+        }
+
+        //Get list of all the sensors available
+        function getEntity(){
+            jQuery.ajax({
+                type: "POST",
+                url: 'getEntities',
+                contentType: "application/json",
+                async: false,
+                dataType: "json",
+                success: function(data) {
+                    if(data['status']=="success"){
+                        var entityData = data['data'];
+                        for(var i = 0; i < entityData.length; i++){
+                            $("#entity").append("<option value = "+ entityData[i] + ">" + entityData[i] + "</option>")
+                        }
+                    }
+                }
+            });
+        }
+
+        //Run the method to get data from server every 60 seconds
+        setInterval(function() {
+            getDataForVisual();
+        }, 60 * 1000);
+
+        //AJAX call for getting data from server
+        function getDataForVisual(){
+            var from = $("#entity").val();
+            var date = $("#datepicker").val();
+            var data = {"time":date, "id":from};
+            var metricArray = [];
+            var headerArr = ['Date', 'pm10', 'pm2.5', 'NO2', 'AQI'];
+            metricArray.push(headerArr);
+            jQuery.ajax({
+                type: "POST",
+                url: 'showData',
+                data: JSON.stringify(data),
+                async:false,
+                contentType: "application/json",
+                dataType: "json",
+                success: function(data) {
+                    if(data['status'] == "success"){
+                        console.log(data);
+                        var respData = data['data'];
+                        console.log(respData);
+                        var keys = Object.keys(respData);
+                        for(var i = 0; i < keys.length; i++){
+                            var tempArray = [];
+                            var keynum = keys[i];
+                            var key = respData[keynum];
+                            tempArray.push(new Date(key['dateTime']));
+                            tempArray.push(parseInt(key['pm10']));
+                            tempArray.push(parseInt(key['pm25']));
+                            tempArray.push(parseInt(key['nitro']));
+                            var aqi = calculatePollution(key['nitro'], key['pm10'], key['pm25']);
+                            tempArray.push(aqi);
+                            metricArray.push(tempArray);
+                        }
+                        drawGraph(metricArray, $("#entity").val());
+                    }
+                }
+            });
+        }
+
+        //Graph code ... Google graphs
+        function drawGraph(dataToDraw, metricName){
+            google.charts.load('current', {'packages':['corechart']});
+            google.charts.setOnLoadCallback(drawChart);
+            function drawChart() {
+                var data = google.visualization.arrayToDataTable(dataToDraw);
+                var options = {
+                    title: 'Metrics for ' + metricName,
+                    curveType: 'function',
+                    legend: { position: 'bottom' }
+                };
+                var chart = new google.visualization.LineChart(document.getElementById('metricGraph'));
+                chart.draw(data, options);
+            }
+        }
+
+        //Calculate the AQI from NO2, PM10, PM2.5 are known
+        //https://en.wikipedia.org/wiki/Air_quality_index
+        function calculatePollution(nitro, pm10, pm25){
+                var iH = 0;
+                var iL = 0;
+                var cH = 0;
+                var cL = 0;
+                var retMap = {}
+                if(nitro <= 53){
+                    iH = 50;
+                    iL = 0;
+                    cH = 53;
+                    cL = 0;
+                }else if(nitro >= 54 && nitro <= 100 ){
+                    iH = 100;
+                    iL = 51;
+                    cH = 100;
+                    cL = 54;
+                }else if(nitro >= 101 && nitro <=360){
+                    iH = 150;
+                    iL = 101;
+                    cH = 360;
+                    cL = 101;
+                }else if(nitro >= 361 && nitro <=649){
+                    iH = 200;
+                    iL = 151;
+                    cH = 649;
+                    cL = 361;
+                }else if(nitro >= 650 && nitro <=1249){
+                    iH = 300;
+                    iL = 201;
+                    cH = 1249;
+                    cL = 650;
+                }else if(nitro >= 1250 && nitro <=1649){
+                    iH = 400;
+                    iL = 301;
+                    cH = 1649;
+                    cL = 1250;
+                }else if(nitro >= 1650){
+                    iH = 500;
+                    iL = 401;
+                    cH = 2049;
+                    cL = 1650;
+                }
+                var nP = ((iH - iL)/(cH - cL))*(nitro - cL) + iL
+                retMap['nitro'] = nP;
+                if(pm10 <= 54){
+                    iH = 50;
+                    iL = 0;
+                    cH = 54;
+                    cL = 0;
+                }else if(pm10 >= 55 && pm10 <= 154){
+                    iH = 100;
+                    iL = 51;
+                    cH = 154;
+                    cL = 55;
+                }else if(pm10 >= 155 && pm10 <= 254){
+                    iH = 150;
+                    iL = 101;
+                    cH = 254;
+                    cL = 155;
+                }else if(pm10 >= 255 && pm10 <= 354){
+                    iH = 200;
+                    iL = 151;
+                    cH = 354;
+                    cL = 255;
+                }else if(pm10 >= 355 && pm10 <= 424){
+                    iH = 300;
+                    iL = 201;
+                    cH = 424;
+                    cL = 355;
+                }else if(pm10 >= 425 && pm10 <= 504){
+                    iH = 400;
+                    iL = 301;
+                    cH = 504;
+                    cL = 425;
+                }else if(pm10 >= 505){
+                    iH = 500;
+                    iL = 401;
+                    cH = 604;
+                    cL = 505;
+                }
+                var pmP = ((iH - iL)/(cH - cL))*(pm10 - cL) + iL
+                retMap['pm10'] = pmP;
+
+                if(pm25 <= 12){
+                    iH = 50;
+                    iL = 0;
+                    cH = 12;
+                    cL = 0;
+                }else if(pm25 <=35.4 && pm25 >= 12.1){
+                    iH = 100;
+                    iL = 51;
+                    cH = 35.4;
+                    cL = 12.1;
+                }else if(pm25 <=55.4 && pm25 >= 35.5){
+                    iH = 150;
+                    iL = 101;
+                    cH = 55.4;
+                    cL = 35.5;
+                }else if(pm25 <=150.4 && pm25 >= 55.5){
+                    iH = 200;
+                    iL = 151;
+                    cH = 150.4;
+                    cL = 55.5;
+                }else if(pm25 <=250.4 && pm25 >= 150.5){
+                    iH = 300;
+                    iL = 201;
+                    cH = 250.4;
+                    cL = 150.5;
+                }else if(pm25 <=350.4 && pm25 >= 250.5){
+                    iH = 400;
+                    iL = 301;
+                    cH = 350.4;
+                    cL = 250.5;
+                }else if(pm25 >= 350.5){
+                    iH = 500;
+                    iL = 401;
+                    cH = 500.4;
+                    cL = 350.5;
+                }
+                var pm2P = ((iH - iL)/(cH - cL))*(pm25 - cL) + iL
+                var fnl = nP;
+                if(pmP > nP){
+                    fnl = pmP;
+                }else if(pm2P > nP){
+                    fnl = pm2P
+                }
+                retMap['pm25'] = pm2P;
+                return fnl;
+            }
+        </script>
+    </body>
+</html>

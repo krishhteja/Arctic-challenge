@@ -1,0 +1,403 @@
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Arctic Shakers</title>
+                <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+            <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+            <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+            <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+
+        <style>
+          #map {
+            height: 100%;
+          }
+          /* Optional: Makes the sample page fill the window. */
+          html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+          }
+          #floating-panel {
+            position: absolute;
+            top: 10px;
+            left: 25%;
+            z-index: 5;
+            background-color: #fff;
+            padding: 5px;
+            border: 1px solid #999;
+            text-align: center;
+            font-family: 'Roboto','sans-serif';
+            line-height: 30px;
+            padding-left: 10px;
+          }
+          #floating-panel {
+            background-color: #fff;
+            border: 1px solid #999;
+            left: 25%;
+            padding: 5px;
+            position: absolute;
+            top: 10px;
+            z-index: 5;
+          }
+        </style>
+      </head>
+
+      <body>
+        <nav class="navbar navbar-inverse">
+          <div class="container-fluid">
+            <div class="navbar-header">
+              <a class="navbar-brand" href="#"> <span class = "glyphicon glyphicon-cloud">&nbsp;</span>Arctic Shakers</a>
+            </div>
+            <ul class="nav navbar-nav navbar-right">
+              <li><a href="/"><span class="glyphicon glyphicon-map-marker"></span> Map</a></li>
+              <li><a href="/visual"><span class="glyphicon glyphicon-barcode"></span> Graph</a></li>
+            </ul>
+          </div>
+        </nav>
+        <div id = "data" class = "container-fluid">
+            <div class = "col-md-4"><input type = "text" id = "start"></div>
+            <div class = "col-md-4"><input type = "text" id = "end"></div>
+            <div class = "col-md-4"><input type = "button" value = "Get directions" class = "btn btn-primary" id = "getRouteData"></div>
+        </div>
+        <div id="map" class = "container"></div>
+
+        <div class="modal fade" id="myModal" role="dialog">
+            <div class="modal-dialog">
+              <!-- Modal content-->
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal">&times;</button>
+                        <h4 class="modal-title" id = "modal-title">Route Options</h4>
+                    </div>
+                    <div class="modal-body" id = "modal-body">
+                        <p>A path on your route has some issues with air quality. It is represented with a red line. Please choose your path carefully.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            var map, heatmap;
+            var directionPath = [];
+            var lines = [];
+
+            //Get data (measurements) from the server on load of DOM elements
+            window.onload = function(){
+                getData();
+            }
+
+            //Draw map on load of DOM elements
+            //Change the parameters as per requirements ... Used static location for on load.
+            //Getting current location can be found here - https://www.w3schools.com/html/html5_geolocation.asp
+            function initMap() {
+                var directionsService = new google.maps.DirectionsService();
+                var directionsDisplay = new google.maps.DirectionsRenderer();
+                map = new google.maps.Map(document.getElementById('map'), {
+                    zoom: 15,
+                    center: {lat: 64.7453329, lng: 20.9569198},
+                    mapTypeId: 'satellite'
+                });
+
+                directionsDisplay.setMap(map);
+                $("#getRouteData").click(function(){
+                    getRoute(directionsService, directionsDisplay)
+                });
+            }
+
+            //Get Route information ... Uses static start and end points ...
+            // Modify the code to read from start and end points from text boxes
+            //Driving mode is enabled ... Can be changed
+            function getRoute(directionsService, directionsDisplay) {
+                start = new google.maps.LatLng(64.7448177,20.9567468);
+                end = new google.maps.LatLng(64.7448177,20.9567468);
+                var request = {
+                    origin: start,
+                    destination: end,
+                    travelMode: 'DRIVING',
+                    provideRouteAlternatives: true,
+                };
+                directionsService.route(request, function(result, status) {
+                    directionPath = [];
+                    console.log(result);
+                    var routes = (result['routes']);
+                    if (status == 'OK') {
+                        clearPreviousLines();
+                        directionPath = [];
+                        var inCount = 0;
+                        for(var i = 0; i < result.routes.length; i++){
+                            var route = routes[i];
+                            var pathInfo = route['overview_path'];
+                            //Get individual points in the path and push them to directionPath Array
+                            for(var j = 0; j < pathInfo.length; j++){
+                                directionPath.push(pathInfo[j]);
+                            }
+                            var distMapVal = checkDistanceMap();
+                            if(distMapVal == "in"){
+                                var line = new google.maps.Polyline({
+                                    path: result.routes[i].overview_path,
+                                    strokeColor: "#ff0000",
+                                    strokeOpacity: 0.9,
+                                    strokeWeight: 8
+                                });
+                                line.setMap(map);
+                                inCount = inCount + 1;
+                                lines.push(line);
+                            }else{
+                                var line = new google.maps.Polyline({
+                                    path: result.routes[i].overview_path,
+                                    strokeColor: "#006400",
+                                    strokeOpacity: 0.9,
+                                    strokeWeight: 8
+                                });
+                                line.setMap(map);
+                                lines.push(line);
+                            }
+                        }
+                        if(inCount > 0){
+                            $("#myModal").modal();
+                        }
+                    }
+                });
+
+                //Using polyLines by google maps for drawing the lines on maps
+                //When new direction is requested, clear all the previous directions
+                function clearPreviousLines(){
+                    for(var i = 0; i < lines.length; i++){
+                        var line = lines[i];
+                        line.setMap(null);
+                    }
+                    lines = [];
+                }
+
+                //To check the distance between the polluted area and the
+                //points in direction provided by google maps API
+                //Returns out if no point in the direction is in 100m radius of area with bad air quality
+                //and in if atleast one point is in radius of 100m from the area with bad air quality
+                function checkDistanceMap(){
+                    for(var i = 0; i < dontGo.length; i++){
+                        for(var j = 0; j < directionPath.length; j++){
+                            var geo = dontGo[i];
+                            var point = geo['location'];
+                            if(getDistance(point, directionPath[j]) < 100){
+                                return "in";
+                            }
+                        }
+                    }
+                    return "out";
+                }
+
+                var rad = function(x) {
+                    return x * Math.PI / 180;
+                };
+
+                //Get the distance between two points.
+                var getDistance = function(p1,p2) {
+                    var R = 6378137; // Earth’s mean radius in meter
+                    var dLat = rad(p2.lat() - p1.lat());
+                    var dLong = rad(p2.lng() - p1.lng());
+                    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                        Math.cos(rad(p1.lat())) * Math.cos(rad(p2.lat())) *
+                        Math.sin(dLong / 2) * Math.sin(dLong / 2);
+                    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                    var d = R * c;
+                    return d; // returns the distance in meter
+                };
+            }
+
+            var geoPoints = [];
+            var dontGo = [];
+            //Get data (measurements) of sensors from server and draw them on the map (heatmaps)
+            function getData(){
+                var date = new Date();
+                var data = {"time":date, "id":"all"};
+                jQuery.ajax({
+                    type: "POST",
+                    url: 'showData',
+                    data: JSON.stringify(data),
+                    async:false,
+                    contentType: "application/json",
+                    dataType: "json",
+                    success: function(data) {
+                        var recvdData = data['data'];
+                        var keyList = Object.keys(data['data'];
+                        var drawMap = {};
+                        for(var i = 0; i < keyList.length; i++){
+                            var objId = keyList[i];
+                            var objData = recvdData[objId]
+                            var lat = objData['lat'];
+                            var lon = objData['lon'];
+                            var nitro = objData['nitro'];
+                            var pm10 = objData['pm10'];
+                            var pm25 = objData['pm25'];
+                            var retMap = calculatePollution(nitro, pm10, pm25);
+                            var latlon = lat + "#" + lon;
+                            drawMap[latlon] = retMap;
+                        }
+                        for(var i = 0; i < Object.keys(drawMap).length; i++){
+                            var latlon = Object.keys(drawMap)[i];
+                            var lat = latlon.split("#")[0];
+                            var lon = latlon.split("#")[1];
+                            var data = drawMap[latlon];
+                            var tempMap = {};
+                            mapTemp = new google.maps.LatLng(lat, lon)
+                            tempMap['location'] = mapTemp;
+                            tempMap['weight'] = data;
+                            geoPoints.push(tempMap);
+                            if(data > 10){
+                                dontGo.push(tempMap);
+                            }
+                        }
+                    }
+                });
+                //Draw heatmap on the maps
+                heatmap = new google.maps.visualization.HeatmapLayer({
+                    data: geoPoints,
+                    map: map,
+                    radius:40,
+                    opacity:0.8
+                });
+            }
+
+            //Calculate the AQI based on NO2, PM10, PM2.5 values
+            //https://en.wikipedia.org/wiki/Air_quality_index
+            function calculatePollution(nitro, pm10, pm25){
+                var iH = 0;
+                var iL = 0;
+                var cH = 0;
+                var cL = 0;
+                var retMap = {}
+                if(nitro <= 53){
+                    iH = 50;
+                    iL = 0;
+                    cH = 53;
+                    cL = 0;
+                }else if(nitro >= 54 && nitro <= 100 ){
+                    iH = 100;
+                    iL = 51;
+                    cH = 100;
+                    cL = 54;
+                }else if(nitro >= 101 && nitro <=360){
+                    iH = 150;
+                    iL = 101;
+                    cH = 360;
+                    cL = 101;
+                }else if(nitro >= 361 && nitro <=649){
+                    iH = 200;
+                    iL = 151;
+                    cH = 649;
+                    cL = 361;
+                }else if(nitro >= 650 && nitro <=1249){
+                    iH = 300;
+                    iL = 201;
+                    cH = 1249;
+                    cL = 650;
+                }else if(nitro >= 1250 && nitro <=1649){
+                    iH = 400;
+                    iL = 301;
+                    cH = 1649;
+                    cL = 1250;
+                }else if(nitro >= 1650){
+                    iH = 500;
+                    iL = 401;
+                    cH = 2049;
+                    cL = 1650;
+                }
+                var nP = ((iH - iL)/(cH - cL))*(nitro - cL) + iL
+                retMap['nitro'] = nP;
+                if(pm10 <= 54){
+                    iH = 50;
+                    iL = 0;
+                    cH = 54;
+                    cL = 0;
+                }else if(pm10 >= 55 && pm10 <= 154){
+                    iH = 100;
+                    iL = 51;
+                    cH = 154;
+                    cL = 55;
+                }else if(pm10 >= 155 && pm10 <= 254){
+                    iH = 150;
+                    iL = 101;
+                    cH = 254;
+                    cL = 155;
+                }else if(pm10 >= 255 && pm10 <= 354){
+                    iH = 200;
+                    iL = 151;
+                    cH = 354;
+                    cL = 255;
+                }else if(pm10 >= 355 && pm10 <= 424){
+                    iH = 300;
+                    iL = 201;
+                    cH = 424;
+                    cL = 355;
+                }else if(pm10 >= 425 && pm10 <= 504){
+                    iH = 400;
+                    iL = 301;
+                    cH = 504;
+                    cL = 425;
+                }else if(pm10 >= 505){
+                    iH = 500;
+                    iL = 401;
+                    cH = 604;
+                    cL = 505;
+                }
+                var pmP = ((iH - iL)/(cH - cL))*(pm10 - cL) + iL
+                retMap['pm10'] = pmP;
+
+                if(pm25 <= 12){
+                    iH = 50;
+                    iL = 0;
+                    cH = 12;
+                    cL = 0;
+                }else if(pm25 <=35.4 && pm25 >= 12.1){
+                    iH = 100;
+                    iL = 51;
+                    cH = 35.4;
+                    cL = 12.1;
+                }else if(pm25 <=55.4 && pm25 >= 35.5){
+                    iH = 150;
+                    iL = 101;
+                    cH = 55.4;
+                    cL = 35.5;
+                }else if(pm25 <=150.4 && pm25 >= 55.5){
+                    iH = 200;
+                    iL = 151;
+                    cH = 150.4;
+                    cL = 55.5;
+                }else if(pm25 <=250.4 && pm25 >= 150.5){
+                    iH = 300;
+                    iL = 201;
+                    cH = 250.4;
+                    cL = 150.5;
+                }else if(pm25 <=350.4 && pm25 >= 250.5){
+                    iH = 400;
+                    iL = 301;
+                    cH = 350.4;
+                    cL = 250.5;
+                }else if(pm25 >= 350.5){
+                    iH = 500;
+                    iL = 401;
+                    cH = 500.4;
+                    cL = 350.5;
+                }
+                var pm2P = ((iH - iL)/(cH - cL))*(pm25 - cL) + iL
+                var fnl = nP;
+                if(pmP > nP){
+                    fnl = pmP;
+                }else if(pm2P > nP){
+                    fnl = pm2P
+                }
+                retMap['pm25'] = pm2P;
+                return fnl;
+            }
+
+        </script>
+        <script async defer
+            src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=visualization&callback=initMap">
+        //Replace your API key https://developers.google.com/maps/documentation/javascript/get-api-key
+        </script>
+      </body>
+    </html>
